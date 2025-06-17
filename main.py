@@ -1,30 +1,19 @@
-from collections import deque
+import numpy as np
 import pandas as pd
+from collections import deque
+import math
 
-class Building:
-    def __init__(self, file):
-        self.excel_file = pd.ExcelFile(file)
-        self.floorList = {}  # floor name -> dataframe
-        for sheet_name in self.excel_file.sheet_names:
-            if sheet_name in self.floorList:
-                raise Exception(f"Floor '{sheet_name}' already exists")
-            else:
-                self.floorList[sheet_name] = self.excel_file.parse(sheet_name)
-
-class Room:
-    def __init__(self, name, beds, status, row, col):
-        self.name = name
-        self.beds = int(beds)
-        self.status = bool(status)  # True = vacant
+# Room node for Linked List
+class RoomNode:
+    def __init__(self, row, col, name):
         self.row = row
         self.col = col
-        self.next = None  # For LinkedList traversal
+        self.name = name
+        self.next = None
 
-    def __repr__(self):
-        return f"Room({self.name}, Beds={self.beds}, Vacant={self.status}, Pos=({self.row},{self.col}))"
-
+# Lobby class to store linked list of rooms
 class Lobby:
-    def __init__(self, header_room=None, number_of_rooms=0):
+    def __init__(self, header_room, number_of_rooms=0):
         if header_room is None:
             self.room_header = None
             self.room_iter = None
@@ -36,98 +25,134 @@ class Lobby:
         else:
             self.room_header = header_room
             self.room_iter = header_room
-            self.start_row = header_room.row
-            self.end_row = header_room.row
-            self.start_col = header_room.col
-            self.end_col = header_room.col
             self.number_of_rooms = number_of_rooms
+            self._set_bounds()
 
-    def add_room(self, room):
-        if self.room_header is None:
-            self.room_header = room
-            self.room_iter = room
-            self.start_row = room.row
-            self.end_row = room.row
-            self.start_col = room.col
-            self.end_col = room.col
-        else:
-            self.room_iter.next = room
-            self.room_iter = room
-            self.end_row = room.row
-            self.end_col = room.col
-        self.number_of_rooms += 1
+    def _set_bounds(self):
+        rows = []
+        cols = []
+        ptr = self.room_header
+        while ptr:
+            rows.append(ptr.row)
+            cols.append(ptr.col)
+            ptr = ptr.next
+        self.start_row = min(rows)
+        self.end_row = max(rows)
+        self.start_col = min(cols)
+        self.end_col = max(cols)
 
     def __repr__(self):
         return f"Lobby(Rooms={self.number_of_rooms}, From=({self.start_row},{self.start_col}) To=({self.end_row},{self.end_col}))"
 
-# Helpers
+# Helper functions to classify cell types
 def is_room(cell):
     return isinstance(cell, str) and cell.lower().startswith("room")
 
-def is_valid(cell):
-    return isinstance(cell, str) and (cell.lower().startswith("room") or cell.lower() == "hall")
+def is_hall(cell):
+    return isinstance(cell, str) and cell.lower() == "hall"
 
-# BFS to gather connected rooms/halls
+def is_corridor(cell):
+    return isinstance(cell, str) and cell.lower() == "corridor"
+
+# Checks if cell is part of a lobby path
+def is_valid_lobby_cell(cell):
+    return is_room(cell) or is_hall(cell)
+
+# Checks if this room is adjacent to a corridor
+def is_corridor_adjacent(grid, r, c):
+    rows, cols = len(grid), len(grid[0])
+    for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < rows and 0 <= nc < cols and is_corridor(grid[nr][nc]):
+            return True
+    return False
+
+# Simplified BFS to enforce earlier-style linear traversal
+
 def bfs(grid, start, visited):
     rows, cols = len(grid), len(grid[0])
     queue = deque([start])
-    lobby = Lobby()
+    local_visited = set()
+    room_nodes = []
+    prev_room_node = None
+    head = None
 
     while queue:
         r, c = queue.popleft()
-        if (r, c) in visited:
+        if (r, c) in visited or (r, c) in local_visited:
             continue
 
-        visited.add((r, c))
         cell = grid[r][c]
+        if not is_valid_lobby_cell(cell):
+            continue
+
+        local_visited.add((r, c))
 
         if is_room(cell):
-            parts = cell.split(':')
-            try:
-                room_number = parts[0].strip().split()[1] if len(parts[0].strip().split()) > 1 else "?"
-                bed_count = int(parts[1].strip().split()[0]) if len(parts) > 1 else 1
-                is_vacant = parts[2].strip().lower() == 'vacant' if len(parts) > 2 else True
+            node = RoomNode(r, c, cell)
+            if not head:
+                head = node
+            if prev_room_node:
+                prev_room_node.next = node
+            prev_room_node = node
+            room_nodes.append(node)
 
-                room = Room(room_number, bed_count, is_vacant, r, c)
-                lobby.add_room(room)
-            except Exception as e:
-                print(f"Error parsing room at ({r},{c}): '{cell}' -> {e}")
-
-        # Check 4-directionally
-        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        for dr, dc in [(0,1),(1,0),(0,-1),(-1,0)]:  # Right, Down, Left, Up
             nr, nc = r + dr, c + dc
-            if 0 <= nr < rows and 0 <= nc < cols and (nr, nc) not in visited:
-                if is_valid(grid[nr][nc]):
-                    queue.append((nr, nc))
+            if 0 <= nr < rows and 0 <= nc < cols:
+                if (nr, nc) not in visited and (nr, nc) not in local_visited:
+                    if is_valid_lobby_cell(grid[nr][nc]):
+                        queue.append((nr, nc))
 
-    return lobby
+    for r, c in local_visited:
+        visited.add((r, c))
 
-# Find all room clusters
+    return Lobby(head, len(room_nodes)) if head else None
+
+# Finds all valid lobbies in a grid layout
 def find_all_lobbies(grid):
     visited = set()
     lobbies = []
     rows, cols = len(grid), len(grid[0])
 
+    # Priority queues
+    priority = []  # Corridor-adjacent rooms
+    fallback = []  # All other rooms
+
     for r in range(rows):
         for c in range(cols):
-            if (r, c) not in visited and is_room(grid[r][c]):
-                lobby = bfs(grid, (r, c), visited)
-                if lobby.number_of_rooms > 1:
-                    lobbies.append(lobby)
+            if is_room(grid[r][c]):
+                if is_corridor_adjacent(grid, r, c):
+                    priority.append((r, c))
+                else:
+                    fallback.append((r, c))
+
+    for r, c in priority + fallback:
+        if (r, c) not in visited:
+            lobby = bfs(grid, (r, c), visited)
+            if lobby and lobby.number_of_rooms > 0:
+                lobbies.append(lobby)
 
     return lobbies
 
-# Main driver
-building = Building('building_test.xlsx')
 
-for sheet_name, df in building.floorList.items():
-    floor_layout = df.values.tolist()
-    print(f"\nLobbies in Floor: {sheet_name}")
-    lobby_list = find_all_lobbies(floor_layout)
-    for lobby in lobby_list:
+def main():
+    # Read the grid layout from an Excel file
+    df = pd.read_excel("building_test.xlsx", header=None)
+    grid = df.replace({np.nan: None}).values.tolist()
+
+    print(f"Grid loaded: {len(grid)} rows × {len(grid[0]) if grid else 0} columns")
+
+    # Find all room lobbies connected to corridors
+    lobbies = find_all_lobbies(grid)
+
+    # Print each lobby and its sequence of rooms
+    for lobby in lobbies:
         print(lobby)
-        iter = lobby.room_header
-        while iter != None:
-            print(iter)
-            iter = iter.next
-    # print(floor_layout)
+        ptr = lobby.room_header
+        while ptr:
+            print(f"  -> Room {ptr.name} at ({ptr.row},{ptr.col})")
+            ptr = ptr.next
+
+if __name__ == "__main__":
+    main()

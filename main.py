@@ -28,6 +28,8 @@ def main():
     #         print(f"  -> Room {ptr.room_name} at ({ptr.row},{ptr.col}), Beds: {ptr.num_beds}, Vacant: {ptr.vacancy}")
     #         ptr = ptr.next
 
+    
+
 
 
 if __name__ == "__main__":

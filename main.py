@@ -15,7 +15,7 @@ def main():
     df_tenant = pd.read_excel('tenants_test.xlsx')
 
     # BFS-ed sequence of tenants as components
-    bfs_tenants = bfs_traverse_all_components(df)
+    bfs_tenants = bfs_traverse_all_components(df_tenant)
 
     # Finding all room lobbies connected to corridors
     lobbies = find_all_lobbies(grid)

@@ -15,6 +15,7 @@ class RoomNode:
         self.room_name = None
         self.vacancy = True
         self.num_beds = 1
+        self.vacant_beds = 1
 
         # Try to parse the name into components
         try:
@@ -24,6 +25,7 @@ class RoomNode:
             if len(parts) >= 2:
                 if "bed" in parts[1].lower():
                     self.num_beds = int(parts[1].split()[0])
+                    self.vacant_beds = self.num_beds
             if len(parts) >= 3:
                 self.vacancy = parts[2].lower() in ["vacant", "available", "yes"]
         except Exception as e:
